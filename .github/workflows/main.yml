@@ -13,15 +13,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Qt 6.5
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: '6.5.3'
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_msvc2019_64'
-          modules: 'qtmultimedia qtsql'
-          cache: 'true'
+      - name: Install Qt 6.5.3
+        shell: pwsh
+        run: |
+          pip install aqtinstall==3.1.7
+          aqt install-qt windows desktop 6.5.3 win64_msvc2019_64 --modules qtmultimedia qtsql --outputdir C:\Qt
+          Add-Content $env:GITHUB_PATH "C:\Qt\6.5.3\msvc2019_64\bin"
+          Add-Content $env:GITHUB_ENV "Qt6_DIR=C:\Qt\6.5.3\msvc2019_64"
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -31,15 +29,14 @@ jobs:
       - name: Download FFmpeg
         shell: pwsh
         run: |
-          $url = "https://github.com/GyanD/codexffmpeg/releases/download/6.1.1/ffmpeg-6.1.1-full_build-shared.7z"
-          Invoke-WebRequest $url -OutFile "$env:RUNNER_TEMP\ffmpeg.7z"
+          Invoke-WebRequest "https://github.com/GyanD/codexffmpeg/releases/download/6.1.1/ffmpeg-6.1.1-full_build-shared.7z" -OutFile "$env:RUNNER_TEMP\ffmpeg.7z"
           7z x "$env:RUNNER_TEMP\ffmpeg.7z" -o"C:\ffmpeg_x" -y | Out-Null
           $d = Get-ChildItem "C:\ffmpeg_x" -Directory | Select-Object -First 1
           Move-Item $d.FullName "C:\ffmpeg"
 
-      - name: Configure CMake
+      - name: Configure
         shell: cmd
-        run: cmake -B build -S . -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="%Qt6_DIR%" -DFFMPEG_DIR="C:\ffmpeg"
+        run: cmake -B build -S . -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:\Qt\6.5.3\msvc2019_64" -DFFMPEG_DIR="C:\ffmpeg"
 
       - name: Build
         shell: cmd
@@ -56,7 +53,7 @@ jobs:
         shell: pwsh
         run: |
           foreach ($dll in @("avcodec","avformat","avutil","swscale","swresample","avdevice","avfilter")) {
-            Get-ChildItem "C:\ffmpeg\bin\$dll*.dll" -EA SilentlyContinue | Copy-Item -Dest deploy
+            Get-ChildItem "C:\ffmpeg\bin\$dll*.dll" -EA SilentlyContinue | Copy-Item -Destination deploy
           }
 
       - name: Install Inno Setup
@@ -69,7 +66,7 @@ jobs:
           mkdir installer\output
           iscc installer\setup.iss
 
-      - name: Upload Installer
+      - name: Upload Installer EXE
         uses: actions/upload-artifact@v4
         with:
           name: FrameX-Setup-Windows
