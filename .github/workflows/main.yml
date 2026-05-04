@@ -28,7 +28,6 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-qt6-base
             mingw-w64-x86_64-qt6-multimedia
-            mingw-w64-x86_64-qt6-sql
             mingw-w64-x86_64-ffmpeg
 
       - name: Configure CMake
