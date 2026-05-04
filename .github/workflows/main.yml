@@ -9,51 +9,51 @@ jobs:
   build:
     runs-on: windows-latest
 
+    defaults:
+      run:
+        shell: msys2 {0}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Qt 6.5.3
-        shell: pwsh
-        run: |
-          pip install aqtinstall==3.1.7
-          aqt install-qt windows desktop 6.5.3 win64_msvc2019_64 --modules qtmultimedia qtsql --outputdir C:\Qt
-          Add-Content $env:GITHUB_PATH "C:\Qt\6.5.3\msvc2019_64\bin"
-          Add-Content $env:GITHUB_ENV "Qt6_DIR=C:\Qt\6.5.3\msvc2019_64"
-
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Setup MSYS2 + Qt6 + FFmpeg
+        uses: msys2/setup-msys2@v2
         with:
-          arch: x64
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-multimedia
+            mingw-w64-x86_64-qt6-sql
+            mingw-w64-x86_64-ffmpeg
 
-      - name: Download FFmpeg
-        shell: pwsh
+      - name: Configure CMake
         run: |
-          Invoke-WebRequest "https://github.com/GyanD/codexffmpeg/releases/download/6.1.1/ffmpeg-6.1.1-full_build-shared.7z" -OutFile "$env:RUNNER_TEMP\ffmpeg.7z"
-          7z x "$env:RUNNER_TEMP\ffmpeg.7z" -o"C:\ffmpeg_x" -y | Out-Null
-          $d = Get-ChildItem "C:\ffmpeg_x" -Directory | Select-Object -First 1
-          Move-Item $d.FullName "C:\ffmpeg"
-
-      - name: Configure
-        shell: cmd
-        run: cmake -B build -S . -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:\Qt\6.5.3\msvc2019_64" -DFFMPEG_DIR="C:\ffmpeg"
+          cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DFFMPEG_DIR=/mingw64
 
       - name: Build
-        shell: cmd
         run: cmake --build build --config Release --parallel 4
 
-      - name: Deploy Qt DLLs
-        shell: cmd
-        run: |
-          mkdir deploy
-          copy build\FrameX.exe deploy\
-          windeployqt --release --no-translations --multimedia --dir deploy deploy\FrameX.exe
-
-      - name: Copy FFmpeg DLLs
+      - name: Deploy DLLs
         shell: pwsh
         run: |
-          foreach ($dll in @("avcodec","avformat","avutil","swscale","swresample","avdevice","avfilter")) {
-            Get-ChildItem "C:\ffmpeg\bin\$dll*.dll" -EA SilentlyContinue | Copy-Item -Destination deploy
+          New-Item -ItemType Directory -Force -Path deploy
+          Copy-Item build/FrameX.exe deploy/
+          $qt = "C:\msys64\mingw64\bin"
+          foreach ($dll in @("Qt6Core","Qt6Gui","Qt6Widgets","Qt6Multimedia","Qt6MultimediaWidgets","Qt6Network","Qt6Sql","Qt6OpenGL","Qt6OpenGLWidgets")) {
+            Get-ChildItem "$qt\$dll*.dll" -EA SilentlyContinue | Copy-Item -Destination deploy
+          }
+          $plugins = "C:\msys64\mingw64\share\qt6\plugins"
+          foreach ($dir in @("platforms","imageformats","styles","multimedia")) {
+            New-Item -ItemType Directory -Force -Path "deploy\$dir" | Out-Null
+            Get-ChildItem "$plugins\$dir\*.dll" -EA SilentlyContinue | Copy-Item -Destination "deploy\$dir"
+          }
+          foreach ($dll in @("avcodec","avformat","avutil","swscale","swresample","avdevice","avfilter","libgcc_s_seh-1","libstdc++-6","libwinpthread-1")) {
+            Get-ChildItem "$qt\$dll*.dll" -EA SilentlyContinue | Copy-Item -Destination deploy
           }
 
       - name: Install Inno Setup
@@ -66,7 +66,7 @@ jobs:
           mkdir installer\output
           iscc installer\setup.iss
 
-      - name: Upload Installer EXE
+      - name: Upload Installer
         uses: actions/upload-artifact@v4
         with:
           name: FrameX-Setup-Windows
