@@ -13,14 +13,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Qt
-        shell: pwsh
-        run: |
-          pip install aqtinstall
-          aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 `
-            --modules qtmultimedia qtsql `
-            --outputdir C:\Qt
-          echo "C:\Qt\6.7.3\msvc2019_64\bin" >> $env:GITHUB_PATH
+      - name: Install Qt 6.5
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.5.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+          modules: 'qtmultimedia qtsql'
+          cache: 'true'
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -30,16 +31,15 @@ jobs:
       - name: Download FFmpeg
         shell: pwsh
         run: |
-          Invoke-WebRequest "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z" -OutFile "$env:RUNNER_TEMP\ffmpeg.7z"
+          $url = "https://github.com/GyanD/codexffmpeg/releases/download/6.1.1/ffmpeg-6.1.1-full_build-shared.7z"
+          Invoke-WebRequest $url -OutFile "$env:RUNNER_TEMP\ffmpeg.7z"
           7z x "$env:RUNNER_TEMP\ffmpeg.7z" -o"C:\ffmpeg_x" -y | Out-Null
           $d = Get-ChildItem "C:\ffmpeg_x" -Directory | Select-Object -First 1
           Move-Item $d.FullName "C:\ffmpeg"
 
       - name: Configure CMake
         shell: cmd
-        run: |
-          mkdir build
-          cmake -B build -S . -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:\Qt\6.7.3\msvc2019_64" -DFFMPEG_DIR="C:\ffmpeg"
+        run: cmake -B build -S . -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="%Qt6_DIR%" -DFFMPEG_DIR="C:\ffmpeg"
 
       - name: Build
         shell: cmd
@@ -50,26 +50,24 @@ jobs:
         run: |
           mkdir deploy
           copy build\FrameX.exe deploy\
-          windeployqt.exe --release --no-translations --multimedia --dir deploy deploy\FrameX.exe
+          windeployqt --release --no-translations --multimedia --dir deploy deploy\FrameX.exe
 
       - name: Copy FFmpeg DLLs
         shell: pwsh
         run: |
           foreach ($dll in @("avcodec","avformat","avutil","swscale","swresample","avdevice","avfilter")) {
-            Get-ChildItem "C:\ffmpeg\bin\$dll*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "deploy"
+            Get-ChildItem "C:\ffmpeg\bin\$dll*.dll" -EA SilentlyContinue | Copy-Item -Dest deploy
           }
 
       - name: Install Inno Setup
         shell: pwsh
-        run: |
-          Invoke-WebRequest "https://files.jrsoftware.org/is/6/innosetup-6.3.3.exe" -OutFile "$env:RUNNER_TEMP\is.exe"
-          Start-Process "$env:RUNNER_TEMP\is.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES" -Wait
+        run: choco install innosetup --no-progress -y
 
       - name: Create Installer
         shell: cmd
         run: |
           mkdir installer\output
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
+          iscc installer\setup.iss
 
       - name: Upload Installer
         uses: actions/upload-artifact@v4
