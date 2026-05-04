@@ -32,39 +32,48 @@ jobs:
             mingw-w64-x86_64-ffmpeg
 
       - name: Configure CMake
-        run: |
-          cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DFFMPEG_DIR=/mingw64
+        run: cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DFFMPEG_DIR=/mingw64
 
       - name: Build
-        run: cmake --build build --config Release --parallel 4
+        run: cmake --build build --parallel 4
 
-      - name: Deploy DLLs
+      - name: Collect deploy files
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path deploy
-          Copy-Item build/FrameX.exe deploy/
-          $qt = "C:\msys64\mingw64\bin"
+          $mingw = "C:\msys64\mingw64"
+          New-Item -ItemType Directory -Force -Path deploy | Out-Null
+          Copy-Item "build\FrameX.exe" deploy\
           foreach ($dll in @("Qt6Core","Qt6Gui","Qt6Widgets","Qt6Multimedia","Qt6MultimediaWidgets","Qt6Network","Qt6Sql","Qt6OpenGL","Qt6OpenGLWidgets")) {
-            Get-ChildItem "$qt\$dll*.dll" -EA SilentlyContinue | Copy-Item -Destination deploy
+            $f = Get-ChildItem "$mingw\bin\$dll.dll" -EA SilentlyContinue
+            if ($f) { Copy-Item $f.FullName deploy\ }
           }
-          $plugins = "C:\msys64\mingw64\share\qt6\plugins"
-          foreach ($dir in @("platforms","imageformats","styles","multimedia")) {
+          $plugins = "$mingw\share\qt6\plugins"
+          foreach ($dir in @("platforms","imageformats","styles","multimedia","sqldrivers")) {
             New-Item -ItemType Directory -Force -Path "deploy\$dir" | Out-Null
             Get-ChildItem "$plugins\$dir\*.dll" -EA SilentlyContinue | Copy-Item -Destination "deploy\$dir"
           }
-          foreach ($dll in @("avcodec","avformat","avutil","swscale","swresample","avdevice","avfilter","libgcc_s_seh-1","libstdc++-6","libwinpthread-1")) {
-            Get-ChildItem "$qt\$dll*.dll" -EA SilentlyContinue | Copy-Item -Destination deploy
+          foreach ($pat in @("avcodec-*","avformat-*","avutil-*","swscale-*","swresample-*","avdevice-*","avfilter-*")) {
+            Get-ChildItem "$mingw\bin\$pat.dll" -EA SilentlyContinue | Copy-Item -Destination deploy\
           }
+          foreach ($dll in @("libgcc_s_seh-1","libstdc++-6","libwinpthread-1")) {
+            $f = Get-ChildItem "$mingw\bin\$dll.dll" -EA SilentlyContinue
+            if ($f) { Copy-Item $f.FullName deploy\ }
+          }
+          Get-ChildItem deploy -Recurse | Select-Object FullName
 
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
       - name: Create Installer
-        shell: cmd
+        shell: pwsh
         run: |
-          mkdir installer\output
-          iscc installer\setup.iss
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe" }
+          New-Item -ItemType Directory -Force -Path installer\output | Out-Null
+          & $iscc installer\setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          Get-ChildItem installer\output
 
       - name: Upload Installer
         uses: actions/upload-artifact@v4
